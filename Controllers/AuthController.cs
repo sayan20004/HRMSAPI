@@ -6,6 +6,7 @@ using System.Security.Claims;
 using System.Text;
 using HRMSAPI.Models;
 using HRMSAPI.Models.DTOs;
+using HRMSAPI.Services;
 using Microsoft.AspNetCore.Authorization;
 
 namespace HRMSAPI.Controllers
@@ -17,15 +18,18 @@ namespace HRMSAPI.Controllers
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IConfiguration _configuration;
+        private readonly IEmailService _emailService;
 
         public AuthController(
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IEmailService emailService)
         {
             _userManager = userManager;
             _signInManager = signInManager;
             _configuration = configuration;
+            _emailService = emailService;
         }
 
         [HttpPost("register")]
@@ -36,7 +40,7 @@ namespace HRMSAPI.Controllers
 
             var userExists = await _userManager.FindByEmailAsync(model.Email);
             if (userExists != null)
-                return Conflict(new { message = "A user with this email address already exists. Please use a different email or try logging in." });
+                return Conflict(new { message = "A user with this email address already exists." });
 
             var user = new ApplicationUser
             {
@@ -50,7 +54,33 @@ namespace HRMSAPI.Controllers
             if (!result.Succeeded)
                 return BadRequest(result.Errors);
 
-            return Ok(new { message = "User registered successfully!" });
+            var otp = new Random().Next(100000, 999999).ToString();
+            user.OTP = otp;
+            user.OTPExpiration = DateTime.UtcNow.AddMinutes(10);
+            await _userManager.UpdateAsync(user);
+
+            await _emailService.SendEmailAsync(user.Email, "Registration OTP", $"Your OTP is: {otp}");
+
+            return Ok(new { message = "OTP sent to email." });
+        }
+
+        [HttpPost("verify-register-otp")]
+        public async Task<IActionResult> VerifyRegisterOtp([FromBody] VerifyOtpDto model)
+        {
+            var user = await _userManager.FindByEmailAsync(model.Email);
+            if (user == null) return NotFound(new { message = "User not found" });
+
+            if (user.OTP != model.Otp || user.OTPExpiration < DateTime.UtcNow)
+            {
+                return BadRequest(new { message = "Invalid or expired OTP" });
+            }
+
+            user.OTP = null;
+            user.OTPExpiration = null;
+            user.EmailConfirmed = true;
+            await _userManager.UpdateAsync(user);
+
+            return Ok(new { message = "Email verified successfully" });
         }
 
         [HttpPost("login")]
@@ -59,44 +89,60 @@ namespace HRMSAPI.Controllers
             var user = await _userManager.FindByEmailAsync(model.Email);
             if (user != null && await _userManager.CheckPasswordAsync(user, model.Password))
             {
-                var (token, expiration) = GenerateJwtToken(user, model.RememberMe);
-                return Ok(new AuthResponseDto
-                {
-                    Token = token,
-                    Email = user.Email!,
-                    FullName = user.FullName,
-                    Expiration = expiration
-                });
+                var otp = new Random().Next(100000, 999999).ToString();
+                user.OTP = otp;
+                user.OTPExpiration = DateTime.UtcNow.AddMinutes(10);
+                await _userManager.UpdateAsync(user);
+
+                await _emailService.SendEmailAsync(user.Email!, "Login OTP", $"Your Login OTP is: {otp}");
+
+                return Ok(new { message = "OTP sent to email." });
             }
             return Unauthorized(new { message = "Invalid email or password" });
+        }
+
+        [HttpPost("verify-login-otp")]
+        public async Task<IActionResult> VerifyLoginOtp([FromBody] VerifyOtpDto model)
+        {
+            var user = await _userManager.FindByEmailAsync(model.Email);
+            if (user == null) return NotFound(new { message = "User not found" });
+
+            if (user.OTP != model.Otp || user.OTPExpiration < DateTime.UtcNow)
+            {
+                return BadRequest(new { message = "Invalid or expired OTP" });
+            }
+
+            user.OTP = null;
+            user.OTPExpiration = null;
+            await _userManager.UpdateAsync(user);
+
+            var (token, expiration) = GenerateJwtToken(user, model.RememberMe);
+            return Ok(new AuthResponseDto
+            {
+                Token = token,
+                Email = user.Email!,
+                FullName = user.FullName,
+                Expiration = expiration
+            });
         }
 
         [Authorize]
         [HttpGet("profile")]
         public async Task<IActionResult> GetProfile()
         {
-            // 1. Try finding by ID (Standard)
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             var user = await _userManager.FindByIdAsync(userId);
 
-            // 2. Fallback: Try finding by Email if ID lookup failed
             if (user == null)
             {
                 var email = User.FindFirst(ClaimTypes.Email)?.Value;
-                if (!string.IsNullOrEmpty(email))
-                {
-                    user = await _userManager.FindByEmailAsync(email);
-                }
+                if (!string.IsNullOrEmpty(email)) user = await _userManager.FindByEmailAsync(email);
             }
 
-            // 3. Fallback: Try finding by 'sub' claim (which is often Email)
             if (user == null)
             {
                 var sub = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
-                if (!string.IsNullOrEmpty(sub))
-                {
-                    user = await _userManager.FindByEmailAsync(sub);
-                }
+                if (!string.IsNullOrEmpty(sub)) user = await _userManager.FindByEmailAsync(sub);
             }
 
             if (user == null) return NotFound("User not found in database.");
@@ -108,11 +154,9 @@ namespace HRMSAPI.Controllers
         [HttpPut("profile")]
         public async Task<IActionResult> UpdateProfile([FromBody] RegisterDto model)
         {
-            // 1. Try finding by ID
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             var user = await _userManager.FindByIdAsync(userId);
-
-            // 2. Fallback: Try finding by Email
+            
             if (user == null)
             {
                 var email = User.FindFirst(ClaimTypes.Email)?.Value;
@@ -133,11 +177,9 @@ namespace HRMSAPI.Controllers
         [HttpPost("change-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto model)
         {
-            // 1. Try finding by ID
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             var user = await _userManager.FindByIdAsync(userId);
 
-            // 2. Fallback: Try finding by Email
             if (user == null)
             {
                 var email = User.FindFirst(ClaimTypes.Email)?.Value;
@@ -160,10 +202,8 @@ namespace HRMSAPI.Controllers
 
             var claims = new[]
             {
-                // We store Email in Sub (Subject) and ClaimTypes.Email
                 new Claim(JwtRegisteredClaimNames.Sub, user.Email!),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                // We store ID in NameIdentifier
                 new Claim(ClaimTypes.NameIdentifier, user.Id),
                 new Claim(ClaimTypes.Name, user.FullName),
                 new Claim(ClaimTypes.Email, user.Email!)
