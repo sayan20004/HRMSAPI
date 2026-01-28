@@ -6,7 +6,7 @@ using System.Security.Claims;
 using System.Text;
 using HRMSAPI.Models;
 using HRMSAPI.Models.DTOs;
-using HRMSAPI.Services;
+using Microsoft.AspNetCore.Authorization;
 
 namespace HRMSAPI.Controllers
 {
@@ -17,18 +17,15 @@ namespace HRMSAPI.Controllers
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IConfiguration _configuration;
-        private readonly IEmailService _emailService;
 
         public AuthController(
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
-            IConfiguration configuration,
-            IEmailService emailService)
+            IConfiguration configuration)
         {
             _userManager = userManager;
             _signInManager = signInManager;
             _configuration = configuration;
-            _emailService = emailService;
         }
 
         [HttpPost("register")]
@@ -39,7 +36,7 @@ namespace HRMSAPI.Controllers
 
             var userExists = await _userManager.FindByEmailAsync(model.Email);
             if (userExists != null)
-                return Conflict(new { message = "User already Exist" });
+                return Conflict(new { message = "A user with this email address already exists. Please use a different email or try logging in." });
 
             var user = new ApplicationUser
             {
@@ -51,80 +48,69 @@ namespace HRMSAPI.Controllers
             var result = await _userManager.CreateAsync(user, model.Password);
 
             if (!result.Succeeded)
-                return BadRequest(new { errors = result.Errors });
+                return BadRequest(result.Errors);
 
-            var (token, expiration) = GenerateJwtToken(user, false);
-            return Ok(new AuthResponseDto
-            {
-                Token = token,
-                Email = user.Email!,
-                FullName = user.FullName,
-                Expiration = expiration
-            });
+            return Ok(new { message = "User registered successfully!" });
         }
 
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto model)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
             var user = await _userManager.FindByEmailAsync(model.Email);
-            if (user == null)
-                return Unauthorized(new { message = "Invalid email or password" });
-
-            var result = await _signInManager.CheckPasswordSignInAsync(user, model.Password, false);
-            if (!result.Succeeded)
-                return Unauthorized(new { message = "Invalid email or password" });
-
-            var (token, expiration) = GenerateJwtToken(user, model.RememberMe);
-
-            return Ok(new AuthResponseDto
+            if (user != null && await _userManager.CheckPasswordAsync(user, model.Password))
             {
-                Token = token,
-                Email = user.Email!,
-                FullName = user.FullName,
-                Expiration = expiration
-            });
-        }
-
-        [HttpPost("forgot-password")]
-        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordDto model)
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            // Normalize email to uppercase to match database
-            var normalizedEmail = model.Email.ToUpperInvariant();
-            var user = await _userManager.FindByEmailAsync(normalizedEmail);
-            
-            if (user == null)
-            {
-                return NotFound(new { message = "No account found with this email address." });
+                var (token, expiration) = GenerateJwtToken(user, model.RememberMe);
+                return Ok(new AuthResponseDto
+                {
+                    Token = token,
+                    Email = user.Email!,
+                    FullName = user.FullName,
+                    Expiration = expiration
+                });
             }
-
-            var token = await _userManager.GeneratePasswordResetTokenAsync(user);
-            await _emailService.SendPasswordResetEmailAsync(user.Email!, token);
-
-            return Ok(new { message = "Password reset link has been sent to your email." });
+            return Unauthorized(new { message = "Invalid email or password" });
         }
 
-        [HttpPost("reset-password")]
-        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto model)
+        [Authorize]
+        [HttpGet("profile")]
+        public async Task<IActionResult> GetProfile()
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null) return NotFound();
 
-            var user = await _userManager.FindByEmailAsync(model.Email);
-            if (user == null)
-                return BadRequest(new { message = "Invalid request" });
+            return Ok(new { user.FullName, user.Email });
+        }
 
-            var result = await _userManager.ResetPasswordAsync(user, model.Token, model.NewPassword);
-            
-            if (!result.Succeeded)
-                return BadRequest(new { message = "Failed to reset password", errors = result.Errors });
+        [Authorize]
+        [HttpPut("profile")]
+        public async Task<IActionResult> UpdateProfile([FromBody] RegisterDto model)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null) return NotFound();
 
-            return Ok(new { message = "Password reset successfully" });
+            user.FullName = model.FullName;
+            var result = await _userManager.UpdateAsync(user);
+
+            if (!result.Succeeded) return BadRequest(result.Errors);
+
+            return Ok(new { message = "Profile updated successfully" });
+        }
+
+        [Authorize]
+        [HttpPost("change-password")]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto model)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null) return NotFound();
+
+            var result = await _userManager.ChangePasswordAsync(user, model.OldPassword, model.NewPassword);
+
+            if (!result.Succeeded) return BadRequest(result.Errors);
+
+            return Ok(new { message = "Password changed successfully" });
         }
 
         private (string token, DateTime expiration) GenerateJwtToken(ApplicationUser user, bool rememberMe)
@@ -141,11 +127,10 @@ namespace HRMSAPI.Controllers
                 new Claim(ClaimTypes.Email, user.Email!)
             };
 
-            // Set expiration based on RememberMe
-            var expiryMinutes = rememberMe 
+            var expiryMinutes = rememberMe
                 ? Convert.ToDouble(_configuration["Jwt:RememberMeExpiryInMinutes"])
                 : Convert.ToDouble(_configuration["Jwt:ExpiryInMinutes"]);
-            
+
             var expiration = DateTime.UtcNow.AddMinutes(expiryMinutes);
 
             var token = new JwtSecurityToken(
