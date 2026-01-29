@@ -17,7 +17,34 @@ namespace HRMSAPI.Controllers
         {
             _context = context;
         }
+        [HttpDelete("departments/{id}")]
+        public async Task<IActionResult> DeleteDepartment(int id)
+        {
+            var dept = await _context.Departments.FindAsync(id);
+            if (dept == null) return NotFound("Department not found");
 
+            // Prevent deletion if employees are using it
+            if (await _context.Employees.AnyAsync(e => e.DepartmentId == id))
+                return BadRequest("Cannot delete: Assigned to existing employees.");
+
+            _context.Departments.Remove(dept);
+            await _context.SaveChangesAsync();
+            return Ok();
+        }
+
+        [HttpDelete("designations/{id}")]
+        public async Task<IActionResult> DeleteDesignation(int id)
+        {
+            var desig = await _context.Designations.FindAsync(id);
+            if (desig == null) return NotFound("Designation not found");
+
+            if (await _context.Employees.AnyAsync(e => e.DesignationId == id))
+                return BadRequest("Cannot delete: Assigned to existing employees.");
+
+            _context.Designations.Remove(desig);
+            await _context.SaveChangesAsync();
+            return Ok();
+        }
         [HttpGet("departments")]
         public async Task<IActionResult> GetDepartments()
         {

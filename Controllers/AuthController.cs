@@ -94,6 +94,7 @@ namespace HRMSAPI.Controllers
                 user.OTPExpiration = DateTime.UtcNow.AddMinutes(10);
                 await _userManager.UpdateAsync(user);
 
+                // Use '!' to assert email is not null (since we found the user by email)
                 await _emailService.SendEmailAsync(user.Email!, "Login OTP", $"Your Login OTP is: {otp}");
 
                 return Ok(new { message = "OTP sent to email." });
@@ -107,16 +108,20 @@ namespace HRMSAPI.Controllers
             var user = await _userManager.FindByEmailAsync(model.Email);
             if (user == null) return NotFound(new { message = "User not found" });
 
+            // FIX 1: Verify OTP using Database fields (Removed incorrect IEmailService call)
             if (user.OTP != model.Otp || user.OTPExpiration < DateTime.UtcNow)
             {
                 return BadRequest(new { message = "Invalid or expired OTP" });
             }
 
+            // Clear OTP
             user.OTP = null;
             user.OTPExpiration = null;
             await _userManager.UpdateAsync(user);
 
+            // FIX 2: Generate Token with Correct Expiration based on RememberMe
             var (token, expiration) = GenerateJwtToken(user, model.RememberMe);
+
             return Ok(new AuthResponseDto
             {
                 Token = token,
@@ -131,7 +136,7 @@ namespace HRMSAPI.Controllers
         public async Task<IActionResult> GetProfile()
         {
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var user = await _userManager.FindByIdAsync(userId);
+            var user = await _userManager.FindByIdAsync(userId!);
 
             if (user == null)
             {
@@ -139,13 +144,7 @@ namespace HRMSAPI.Controllers
                 if (!string.IsNullOrEmpty(email)) user = await _userManager.FindByEmailAsync(email);
             }
 
-            if (user == null)
-            {
-                var sub = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
-                if (!string.IsNullOrEmpty(sub)) user = await _userManager.FindByEmailAsync(sub);
-            }
-
-            if (user == null) return NotFound("User not found in database.");
+            if (user == null) return NotFound("User not found.");
 
             return Ok(new { user.FullName, user.Email });
         }
@@ -155,8 +154,8 @@ namespace HRMSAPI.Controllers
         public async Task<IActionResult> UpdateProfile([FromBody] RegisterDto model)
         {
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var user = await _userManager.FindByIdAsync(userId);
-            
+            var user = await _userManager.FindByIdAsync(userId!);
+
             if (user == null)
             {
                 var email = User.FindFirst(ClaimTypes.Email)?.Value;
@@ -178,13 +177,7 @@ namespace HRMSAPI.Controllers
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto model)
         {
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var user = await _userManager.FindByIdAsync(userId);
-
-            if (user == null)
-            {
-                var email = User.FindFirst(ClaimTypes.Email)?.Value;
-                if (!string.IsNullOrEmpty(email)) user = await _userManager.FindByEmailAsync(email);
-            }
+            var user = await _userManager.FindByIdAsync(userId!);
 
             if (user == null) return NotFound("User not found.");
 
@@ -195,6 +188,7 @@ namespace HRMSAPI.Controllers
             return Ok(new { message = "Password changed successfully" });
         }
 
+        // FIX 3: Corrected Token Generation Logic
         private (string token, DateTime expiration) GenerateJwtToken(ApplicationUser user, bool rememberMe)
         {
             var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
@@ -209,11 +203,8 @@ namespace HRMSAPI.Controllers
                 new Claim(ClaimTypes.Email, user.Email!)
             };
 
-            var expiryMinutes = rememberMe
-                ? Convert.ToDouble(_configuration["Jwt:RememberMeExpiryInMinutes"])
-                : Convert.ToDouble(_configuration["Jwt:ExpiryInMinutes"]);
-
-            var expiration = DateTime.UtcNow.AddMinutes(expiryMinutes);
+            // Calculate Expiration: 7 Days if RememberMe is true, else 1 Hour
+            var expiration = DateTime.UtcNow.Add(rememberMe ? TimeSpan.FromDays(7) : TimeSpan.FromHours(1));
 
             var token = new JwtSecurityToken(
                 issuer: _configuration["Jwt:Issuer"],

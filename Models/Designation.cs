@@ -10,6 +10,6 @@ namespace HRMSAPI.Models
         [Required]
         public string Name { get; set; } = string.Empty;
 
-        public int Level { get; set; } 
+        public int Level { get; set; }
     }
 }

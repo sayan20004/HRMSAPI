@@ -31,7 +31,7 @@ namespace HRMSAPI.Models.DTOs
         [Required]
         public string Otp { get; set; } = string.Empty;
         
-        public bool RememberMe { get; set; } = false;
+        public bool RememberMe { get; set; } 
     }
 
     public class AuthResponseDto
