@@ -50,7 +50,49 @@ namespace HRMSAPI.Controllers
         {
             return Ok(await _context.Departments.ToListAsync());
         }
+        [HttpPut("departments/{id}")]
+        public async Task<IActionResult> UpdateDepartment(int id, [FromBody] Department dept)
+        {
+            if (id != dept.Id) return BadRequest("ID mismatch");
 
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            _context.Entry(dept).State = EntityState.Modified;
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                if (!_context.Departments.Any(e => e.Id == id)) return NotFound();
+                throw;
+            }
+
+            return Ok(dept);
+        }
+
+        [HttpPut("designations/{id}")]
+        public async Task<IActionResult> UpdateDesignation(int id, [FromBody] Designation desig)
+        {
+            if (id != desig.Id) return BadRequest("ID mismatch");
+
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            _context.Entry(desig).State = EntityState.Modified;
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                if (!_context.Designations.Any(e => e.Id == id)) return NotFound();
+                throw;
+            }
+
+            return Ok(desig);
+        }
         [HttpPost("departments")]
         public async Task<IActionResult> AddDepartment([FromBody] Department dept)
         {
