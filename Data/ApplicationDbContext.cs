@@ -13,18 +13,6 @@ namespace HRMSAPI.Data
         public DbSet<Employee> Employees { get; set; }
         public DbSet<Department> Departments { get; set; }
         public DbSet<Designation> Designations { get; set; }
-
-        protected override void OnModelCreating(ModelBuilder builder)
-        {
-            base.OnModelCreating(builder);
-
-            builder.Entity<Employee>()
-                .HasIndex(e => e.Email)
-                .IsUnique();
-
-            builder.Entity<Employee>()
-                .HasIndex(e => e.MobileNumber)
-                .IsUnique();
-        }
+        public DbSet<Post> Posts { get; set; } // Added this line
     }
 }

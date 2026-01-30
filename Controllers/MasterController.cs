@@ -1,14 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using HRMSAPI.Data;
 using HRMSAPI.Models;
-using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 
 namespace HRMSAPI.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize]
     public class MasterController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -17,84 +15,13 @@ namespace HRMSAPI.Controllers
         {
             _context = context;
         }
-        [HttpDelete("departments/{id}")]
-        public async Task<IActionResult> DeleteDepartment(int id)
-        {
-            var dept = await _context.Departments.FindAsync(id);
-            if (dept == null) return NotFound("Department not found");
 
-            // Prevent deletion if employees are using it
-            if (await _context.Employees.AnyAsync(e => e.DepartmentId == id))
-                return BadRequest("Cannot delete: Assigned to existing employees.");
-
-            _context.Departments.Remove(dept);
-            await _context.SaveChangesAsync();
-            return Ok();
-        }
-
-        [HttpDelete("designations/{id}")]
-        public async Task<IActionResult> DeleteDesignation(int id)
-        {
-            var desig = await _context.Designations.FindAsync(id);
-            if (desig == null) return NotFound("Designation not found");
-
-            if (await _context.Employees.AnyAsync(e => e.DesignationId == id))
-                return BadRequest("Cannot delete: Assigned to existing employees.");
-
-            _context.Designations.Remove(desig);
-            await _context.SaveChangesAsync();
-            return Ok();
-        }
+        // --- DEPARTMENTS ---
         [HttpGet("departments")]
-        public async Task<IActionResult> GetDepartments()
-        {
-            return Ok(await _context.Departments.ToListAsync());
-        }
-        [HttpPut("departments/{id}")]
-        public async Task<IActionResult> UpdateDepartment(int id, [FromBody] Department dept)
-        {
-            if (id != dept.Id) return BadRequest("ID mismatch");
+        public async Task<IActionResult> GetDepartments() => Ok(await _context.Departments.ToListAsync());
 
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-
-            _context.Entry(dept).State = EntityState.Modified;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!_context.Departments.Any(e => e.Id == id)) return NotFound();
-                throw;
-            }
-
-            return Ok(dept);
-        }
-
-        [HttpPut("designations/{id}")]
-        public async Task<IActionResult> UpdateDesignation(int id, [FromBody] Designation desig)
-        {
-            if (id != desig.Id) return BadRequest("ID mismatch");
-
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-
-            _context.Entry(desig).State = EntityState.Modified;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!_context.Designations.Any(e => e.Id == id)) return NotFound();
-                throw;
-            }
-
-            return Ok(desig);
-        }
         [HttpPost("departments")]
-        public async Task<IActionResult> AddDepartment([FromBody] Department dept)
+        public async Task<IActionResult> CreateDepartment([FromBody] Department dept)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
             _context.Departments.Add(dept);
@@ -102,19 +29,30 @@ namespace HRMSAPI.Controllers
             return Ok(dept);
         }
 
+        // --- DESIGNATIONS ---
         [HttpGet("designations")]
-        public async Task<IActionResult> GetDesignations()
-        {
-            return Ok(await _context.Designations.ToListAsync());
-        }
+        public async Task<IActionResult> GetDesignations() => Ok(await _context.Designations.ToListAsync());
 
         [HttpPost("designations")]
-        public async Task<IActionResult> AddDesignation([FromBody] Designation desig)
+        public async Task<IActionResult> CreateDesignation([FromBody] Designation desig)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
             _context.Designations.Add(desig);
             await _context.SaveChangesAsync();
             return Ok(desig);
+        }
+
+        // --- POSTS (NEW) ---
+        [HttpGet("posts")]
+        public async Task<IActionResult> GetPosts() => Ok(await _context.Posts.ToListAsync());
+
+        [HttpPost("posts")]
+        public async Task<IActionResult> CreatePost([FromBody] Post post)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            _context.Posts.Add(post);
+            await _context.SaveChangesAsync();
+            return Ok(post);
         }
     }
 }

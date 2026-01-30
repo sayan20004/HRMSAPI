@@ -12,7 +12,32 @@ namespace HRMSAPI.Controllers
     public class EmployeeController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
+        // ... inside MasterController class ...
 
+        [HttpGet("posts")]
+        public async Task<IActionResult> GetPosts()
+        {
+            return Ok(await _context.Posts.ToListAsync());
+        }
+
+        [HttpPost("posts")]
+        public async Task<IActionResult> CreatePost([FromBody] Post post)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            _context.Posts.Add(post);
+            await _context.SaveChangesAsync();
+            return Ok(post);
+        }
+
+        [HttpDelete("posts/{id}")]
+        public async Task<IActionResult> DeletePost(int id)
+        {
+            var post = await _context.Posts.FindAsync(id);
+            if (post == null) return NotFound();
+            _context.Posts.Remove(post);
+            await _context.SaveChangesAsync();
+            return Ok();
+        }
         public EmployeeController(ApplicationDbContext context)
         {
             _context = context;
