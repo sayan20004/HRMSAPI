@@ -48,6 +48,11 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
+// Add Services
+builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<IEmployeeService, EmployeeService>();
+builder.Services.AddScoped<IMasterService, MasterService>();
+
 // Add Controllers
 builder.Services.AddControllers();
 

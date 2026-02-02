@@ -33,5 +33,21 @@ namespace HRMSAPI.Models
         public int? PostId { get; set; }
         [ForeignKey("PostId")]
         public Post? Post { get; set; }
+
+        // Properties for SP/TVF results (not mapped to database columns)
+        [NotMapped]
+        public string? DepartmentName { get; set; }
+        
+        [NotMapped]
+        public string? DepartmentCode { get; set; }
+        
+        [NotMapped]
+        public string? DesignationName { get; set; }
+        
+        [NotMapped]
+        public int? DesignationLevel { get; set; }
+        
+        [NotMapped]
+        public string? PostName { get; set; }
     }
 }

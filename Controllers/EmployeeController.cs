@@ -1,8 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using HRMSAPI.Data;
 using HRMSAPI.Models;
 using Microsoft.AspNetCore.Authorization;
+using HRMSAPI.Services;
 
 namespace HRMSAPI.Controllers
 {
@@ -11,56 +10,26 @@ namespace HRMSAPI.Controllers
     [Authorize]
     public class EmployeeController : ControllerBase
     {
-        private readonly ApplicationDbContext _context;
-        // ... inside MasterController class ...
+        private readonly IEmployeeService _employeeService;
 
-        [HttpGet("posts")]
-        public async Task<IActionResult> GetPosts()
+        public EmployeeController(IEmployeeService employeeService)
         {
-            return Ok(await _context.Posts.ToListAsync());
-        }
-
-        [HttpPost("posts")]
-        public async Task<IActionResult> CreatePost([FromBody] Post post)
-        {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-            _context.Posts.Add(post);
-            await _context.SaveChangesAsync();
-            return Ok(post);
-        }
-
-        [HttpDelete("posts/{id}")]
-        public async Task<IActionResult> DeletePost(int id)
-        {
-            var post = await _context.Posts.FindAsync(id);
-            if (post == null) return NotFound();
-            _context.Posts.Remove(post);
-            await _context.SaveChangesAsync();
-            return Ok();
-        }
-        public EmployeeController(ApplicationDbContext context)
-        {
-            _context = context;
+            _employeeService = employeeService;
         }
 
         [HttpGet]
         public async Task<IActionResult> GetEmployees()
         {
-            var employees = await _context.Employees
-                .Include(e => e.Department)
-                .Include(e => e.Designation)
-                .ToListAsync();
+            // Call function which calls Stored Procedure → TVF
+            var employees = await _employeeService.GetAllEmployeesAsync();
             return Ok(employees);
         }
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetEmployee(int id)
         {
-            var employee = await _context.Employees
-                .Include(e => e.Department)
-                .Include(e => e.Designation)
-                .FirstOrDefaultAsync(e => e.Id == id);
-
+            // Call function which calls Stored Procedure → TVF
+            var employee = await _employeeService.GetEmployeeByIdAsync(id);
             if (employee == null) return NotFound();
             return Ok(employee);
         }
@@ -70,23 +39,14 @@ namespace HRMSAPI.Controllers
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            if (await _context.Employees.AnyAsync(e => e.Email == employee.Email))
-                return BadRequest("Email already exists.");
+            // Call function which calls Stored Procedure (INSERT)
+            var (result, message, employeeId) = await _employeeService.CreateEmployeeAsync(employee);
 
-            if (await _context.Employees.AnyAsync(e => e.MobileNumber == employee.MobileNumber))
-                return BadRequest("Mobile number already exists.");
+            if (result < 0)
+                return BadRequest(message);
 
-            // Verify FKs
-            if (!await _context.Departments.AnyAsync(d => d.Id == employee.DepartmentId))
-                return BadRequest("Invalid Department ID.");
-            
-            if (!await _context.Designations.AnyAsync(d => d.Id == employee.DesignationId))
-                return BadRequest("Invalid Designation ID.");
-
-            _context.Employees.Add(employee);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction(nameof(GetEmployee), new { id = employee.Id }, employee);
+            employee.Id = employeeId;
+            return CreatedAtAction(nameof(GetEmployee), new { id = employeeId }, employee);
         }
 
         [HttpPut("{id}")]
@@ -94,20 +54,11 @@ namespace HRMSAPI.Controllers
         {
             if (id != employee.Id) return BadRequest();
 
-            if (await _context.Employees.AnyAsync(e => e.MobileNumber == employee.MobileNumber && e.Id != id))
-                return BadRequest("Mobile number already exists for another employee.");
+            // Call function which calls Stored Procedure (UPDATE)
+            var (result, message) = await _employeeService.UpdateEmployeeAsync(employee);
 
-            _context.Entry(employee).State = EntityState.Modified;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!_context.Employees.Any(e => e.Id == id)) return NotFound();
-                throw;
-            }
+            if (result < 0)
+                return BadRequest(message);
 
             return NoContent();
         }
@@ -115,11 +66,11 @@ namespace HRMSAPI.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteEmployee(int id)
         {
-            var employee = await _context.Employees.FindAsync(id);
-            if (employee == null) return NotFound();
+            // Call function which calls Stored Procedure (DELETE)
+            var (result, message) = await _employeeService.DeleteEmployeeAsync(id);
 
-            _context.Employees.Remove(employee);
-            await _context.SaveChangesAsync();
+            if (result < 0)
+                return BadRequest(message);
 
             return NoContent();
         }
